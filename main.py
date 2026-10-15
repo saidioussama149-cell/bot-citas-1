@@ -52,7 +52,7 @@ def comprobar_estado_temprano(page):
     if DEMASIADAS_PETICIONES in texto or "429" in texto:
         logging.warning("⚠️ Servidor saturado (Error 429).")
         return "429"
-    if "the requested url was rejected" in texto and "icpplus" not in texto:
+    if BLOQUEO in texto and "icpplus" not in texto:
         logging.warning("⚠️ Cortafuegos detectado.")
         return "bloqueo"
     if CADUCADO in texto:
@@ -63,12 +63,12 @@ def comprobar_estado_temprano(page):
 def pulsar_acceso(page):
     boton = page.get_by_text("Acceder al Procedimiento", exact=False).first
     boton.wait_for(state="visible", timeout=30000)
-    time.sleep(random.uniform(1.5, 2.5))
+    time.sleep(random.uniform(2.0, 3.5))
     boton.click()
 
 def seleccionar_tramite(page):
     objetivo = TRAMITE_OBJETIVO.casefold()
-    time.sleep(random.uniform(2.0, 3.0))
+    time.sleep(random.uniform(2.5, 4.0))
     for i in range(page.locator("select").count()):
         menu = page.locator("select").nth(i)
         try:
@@ -100,9 +100,9 @@ def aceptar(page):
             boton = page.locator(selector).first
             if boton.is_visible(timeout=3000):
                 boton.scroll_into_view_if_needed()
-                time.sleep(random.uniform(1.2, 2.0))
+                time.sleep(random.uniform(2.0, 3.5))
                 boton.click(force=True)
-                page.wait_for_load_state("domcontentloaded", timeout=15000)
+                page.wait_for_load_state("domcontentloaded", timeout=20000)
                 logging.info("Botón Aceptar pulsado.")
                 return True
         except Exception:
@@ -112,7 +112,7 @@ def aceptar(page):
 def rellenar_formulario_datos(page):
     logging.info("Rellenando formulario de datos personales...")
     page.wait_for_selector("input[type='text'], input#txtIdCit", timeout=20000)
-    time.sleep(2.0)
+    time.sleep(2.5)
 
     try:
         radio_nie = page.locator("input[type='radio'][value='NIE'], input#rdbTipoDocNie").first
@@ -127,7 +127,8 @@ def rellenar_formulario_datos(page):
         input_nie = page.locator("input[type='text']").nth(0)
     input_nie.click()
     input_nie.fill("")
-    input_nie.type(NIE, delay=random.randint(90, 150))
+    time.sleep(0.5)
+    input_nie.type(NIE, delay=random.randint(120, 200))
     logging.info("NIE introducido: %s", NIE)
 
     # Nombre
@@ -136,7 +137,8 @@ def rellenar_formulario_datos(page):
         input_nombre = page.locator("input[type='text']").nth(1)
     input_nombre.click()
     input_nombre.fill("")
-    input_nombre.type(NOMBRE, delay=random.randint(90, 150))
+    time.sleep(0.5)
+    input_nombre.type(NOMBRE, delay=random.randint(120, 200))
     logging.info("Nombre introducido: %s", NOMBRE)
 
     # Nacionalidad
@@ -156,7 +158,7 @@ def rellenar_formulario_datos(page):
     except Exception as e:
         logging.warning("Aviso al seleccionar país: %s", e)
 
-    time.sleep(2.0)
+    time.sleep(3.0)
     aceptar(page)
 
 def evaluar_resultado_final(page):
@@ -166,7 +168,7 @@ def evaluar_resultado_final(page):
 
     if DEMASIADAS_PETICIONES in texto or "429" in texto:
         return "429"
-    if "the requested url was rejected" in texto and "icpplus" not in texto:
+    if BLOQUEO in texto and "icpplus" not in texto:
         return "bloqueo"
     if CADUCADO in texto:
         return "caducado"
@@ -178,13 +180,21 @@ def evaluar_resultado_final(page):
             f"📍 *Provincia:* {PROVINCIA_SELECCIONADA}\n"
             f"👤 *Solicitante:* {NOMBRE}\n"
             f"🆔 *NIE:* {NIE}\n\n"
-            "En este momento no hay citas disponibles. Lo intentaré de nuevo en 6 minutos."
+            f"🔗 [ENLACE A LA SEDE]({url_actual})\n\n"
+            "El bot ha completado la revisión. No hay citas disponibles en este momento. Lo intentaré de nuevo en 6 minutos."
         )
         enviar_telegram(mensaje_sin_citas)
         return "sin_citas"
 
     if "cl@ve" in texto and "disposición" in texto:
         logging.info("💡 Citas reservadas exclusivamente para Cl@ve.")
+        mensaje_clave = (
+            f"❌ *Mala noticia: Citas solo con Cl@ve*\n\n"
+            f"📍 *Provincia:* {PROVINCIA_SELECCIONADA}\n"
+            f"🔗 [ENLACE A LA SEDE]({url_actual})\n\n"
+            "Las citas actuales están reservadas únicamente para acceso con Cl@ve."
+        )
+        enviar_telegram(mensaje_clave)
         return "sin_citas"
 
     # ¡HAY CITAS REALES DISPONIBLES!
@@ -201,18 +211,17 @@ def evaluar_resultado_final(page):
 
 def ejecutar_ciclo(page):
     logging.info("Abriendo sede...")
-    # Intentamos cargar con timeout amplio de 90s
     page.goto(URL, wait_until="commit", timeout=90000)
     page.wait_for_load_state("domcontentloaded", timeout=30000)
 
     if comprobar_estado_temprano(page) in ("429", "bloqueo"):
-        return "429"
+        return "bloqueo"
 
     pulsar_acceso(page)
     if comprobar_estado_temprano(page) in ("429", "bloqueo"):
-        return "429"
+        return "bloqueo"
 
-    time.sleep(random.uniform(1.5, 2.5))
+    time.sleep(random.uniform(2.0, 3.5))
     provincia = page.locator("select#form, select[name='form']").first
     provincia.wait_for(state="visible", timeout=20000)
     provincia.select_option(label=PROVINCIA_SELECCIONADA)
@@ -222,7 +231,7 @@ def ejecutar_ciclo(page):
         return "desconocido"
 
     if comprobar_estado_temprano(page) in ("429", "bloqueo"):
-        return "429"
+        return "bloqueo"
 
     if not seleccionar_tramite(page):
         logging.warning("No se encontró la opción del trámite.")
@@ -233,10 +242,10 @@ def ejecutar_ciclo(page):
         return "desconocido"
 
     if comprobar_estado_temprano(page) in ("429", "bloqueo"):
-        return "429"
+        return "bloqueo"
 
     logging.info("Avanzando pantalla de avisos...")
-    time.sleep(2.0)
+    time.sleep(2.5)
     try:
         btn_entrar = page.locator("input#btnEntrar, input[value='Entrar'], button#btnEntrar").first
         if btn_entrar.is_visible(timeout=4000):
@@ -249,7 +258,7 @@ def ejecutar_ciclo(page):
         logging.warning("Error al pasar avisos: %s", e)
 
     if comprobar_estado_temprano(page) in ("429", "bloqueo"):
-        return "429"
+        return "bloqueo"
 
     try:
         rellenar_formulario_datos(page)
@@ -257,11 +266,11 @@ def ejecutar_ciclo(page):
         logging.warning("Error introduciendo datos: %s", e)
 
     if comprobar_estado_temprano(page) in ("429", "bloqueo"):
-        return "429"
+        return "bloqueo"
 
     logging.info("Pulsando 'Solicitar Cita'...")
     try:
-        time.sleep(2.0)
+        time.sleep(2.5)
         btn_solicitar = page.locator("input[value='Solicitar Cita'], button:has-text('Solicitar Cita'), input#btnEnviar").first
         if btn_solicitar.is_visible(timeout=5000):
             btn_solicitar.click(force=True)
@@ -272,8 +281,7 @@ def ejecutar_ciclo(page):
     return evaluar_resultado_final(page)
 
 def main():
-    # Mensaje inicial de prueba
-    enviar_telegram("🤖 *Bot de Citas activado correctamente en la nube.* Comenzando monitoreo...")
+    enviar_telegram("🤖 *Bot de Citas activado correctamente en la nube.* Comenzando monitoreo 24/7...")
 
     with sync_playwright() as p:
         navegador = p.chromium.launch(
@@ -302,16 +310,20 @@ def main():
                     resultado = ejecutar_ciclo(page)
                 except PlaywrightTimeoutError:
                     logging.warning("Tiempo de espera agotado al conectar a la Sede.")
-                    resultado = "desconocido"
+                    resultado = "timeout"
                 except Exception as ex:
                     logging.exception(f"Error inesperado: {ex}")
-                    resultado = "desconocido"
+                    resultado = "error"
                 finally:
                     contexto.close()
 
                 if resultado in ("429", "bloqueo"):
                     espera = random.randint(480, 600)
+                    enviar_telegram(f"⚠️ *Aviso de Seguridad:* La Sede ha solicitado una pausa temporal. Descansando {espera // 60} minutos...")
                     logging.warning(f"🛑 Pausa anti-bloqueo: {espera // 60} minutos...")
+                elif resultado in ("timeout", "error", "desconocido"):
+                    espera = 360
+                    enviar_telegram("⚠️ *Aviso:* La Sede tardó en responder o dio un error temporal. Reintentando en 6 minutos...")
                 else:
                     espera = 360
                     logging.info(f"⏳ Siguiente intento en 6 minutos ({espera} segundos)...")
