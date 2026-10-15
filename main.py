@@ -7,10 +7,9 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 
 URL = "https://sede.administracionespublicas.gob.es/pagina/index/directorio/icpplus/"
 
-TOKEN = "8975628897:AAEsWs_b3hmGCXZzqh513pV7-t-DabJg9zQ"
-CHAT_ID = "6008287114"
+TOKEN = os.getenv("TELEGRAM_TOKEN", "8975628897:AAEsWs_b3hmGCXZzqh513pV7-t-DabJg9zQ")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "6008287114")
 
-# CONFIGURACIÓN FLEXIBLE
 PROVINCIA_SELECCIONADA = "Toledo"
 TRAMITE_OBJETIVO = "toma de huellas"
 
@@ -53,7 +52,6 @@ def comprobar_estado_temprano(page):
     if DEMASIADAS_PETICIONES in texto or "429" in texto:
         logging.warning("⚠️ Servidor saturado (Error 429).")
         return "429"
-    # Evitamos falsos positivos comprobando que realmente sea una página de bloqueo técnica
     if "the requested url was rejected" in texto and "icpplus" not in texto:
         logging.warning("⚠️ Cortafuegos detectado.")
         return "bloqueo"
@@ -70,7 +68,7 @@ def pulsar_acceso(page):
 
 def seleccionar_tramite(page):
     objetivo = TRAMITE_OBJETIVO.casefold()
-    time.sleep(random.uniform(1.5, 2.5))  # Pausa humana antes de buscar el trámite
+    time.sleep(random.uniform(1.5, 2.5))
     for i in range(page.locator("select").count()):
         menu = page.locator("select").nth(i)
         try:
@@ -102,7 +100,7 @@ def aceptar(page):
             boton = page.locator(selector).first
             if boton.is_visible(timeout=2000):
                 boton.scroll_into_view_if_needed()
-                time.sleep(random.uniform(1.0, 1.8))  # Pausa antes de hacer clic
+                time.sleep(random.uniform(1.0, 1.8))
                 boton.click(force=True)
                 page.wait_for_load_state("domcontentloaded", timeout=10000)
                 logging.info("Botón Aceptar pulsado.")
@@ -174,7 +172,7 @@ def evaluar_resultado_final(page):
         return "caducado"
     
     if SIN_CITAS in texto or "en este momento no hay citas" in texto:
-        logging.info("ℹ️ [SIN CITAS] No hay huecos libres. Avisando a Telegram y reintentando en 6 minutos.")
+        logging.info("ℹ️ [SIN CITAS] No hay huecos libres.")
         mensaje_sin_citas = (
             f"❌ *Mala noticia: No hay citas*\n\n"
             f"📍 *Provincia:* {PROVINCIA_SELECCIONADA}\n"
@@ -212,7 +210,6 @@ def ejecutar_ciclo(page):
     if comprobar_estado_temprano(page) in ("429", "bloqueo"):
         return "429"
 
-    # Provincia con pausa humana previa
     time.sleep(random.uniform(1.0, 2.0))
     provincia = page.locator("select#form, select[name='form']").first
     provincia.wait_for(state="visible", timeout=15000)
@@ -225,7 +222,6 @@ def ejecutar_ciclo(page):
     if comprobar_estado_temprano(page) in ("429", "bloqueo"):
         return "429"
 
-    # Trámite
     if not seleccionar_tramite(page):
         logging.warning("No se encontró la opción del trámite.")
         return "desconocido"
@@ -237,7 +233,6 @@ def ejecutar_ciclo(page):
     if comprobar_estado_temprano(page) in ("429", "bloqueo"):
         return "429"
 
-    # Avisos
     logging.info("Avanzando pantalla de avisos...")
     time.sleep(1.5)
     try:
@@ -254,7 +249,6 @@ def ejecutar_ciclo(page):
     if comprobar_estado_temprano(page) in ("429", "bloqueo"):
         return "429"
 
-    # Datos personales
     try:
         rellenar_formulario_datos(page)
     except Exception as e:
@@ -263,7 +257,6 @@ def ejecutar_ciclo(page):
     if comprobar_estado_temprano(page) in ("429", "bloqueo"):
         return "429"
 
-    # Solicitar Cita
     logging.info("Pulsando 'Solicitar Cita'...")
     try:
         time.sleep(1.5)
@@ -278,8 +271,9 @@ def ejecutar_ciclo(page):
 
 def main():
     with sync_playwright() as p:
+        # En la nube headless debe ser True obligatoriamente
         navegador = p.chromium.launch(
-            headless=False,
+            headless=True,
             args=["--disable-blink-features=AutomationControlled", "--no-sandbox"]
         )
 
@@ -308,10 +302,10 @@ def main():
 
                 if resultado in ("429", "bloqueo"):
                     espera = random.randint(480, 600)
-                    logging.warning(f"🛑 Pausa de protección anti-bloqueo: {espera // 60} minutos...")
+                    logging.warning(f"🛑 Pausa anti-bloqueo: {espera // 60} minutos...")
                 else:
-                    espera = 360  # Exactamente 6 minutos
-                    logging.info(f"⏳ Comprobación finalizada. Siguiente intento en 6 minutos ({espera} segundos)...")
+                    espera = 360
+                    logging.info(f"⏳ Siguiente intento en 6 minutos ({espera} segundos)...")
 
                 time.sleep(espera)
 
