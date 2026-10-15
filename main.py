@@ -62,13 +62,13 @@ def comprobar_estado_temprano(page):
 
 def pulsar_acceso(page):
     boton = page.get_by_text("Acceder al Procedimiento", exact=False).first
-    boton.wait_for(state="visible", timeout=20000)
-    time.sleep(random.uniform(1.0, 2.0))
+    boton.wait_for(state="visible", timeout=30000)
+    time.sleep(random.uniform(1.5, 2.5))
     boton.click()
 
 def seleccionar_tramite(page):
     objetivo = TRAMITE_OBJETIVO.casefold()
-    time.sleep(random.uniform(1.5, 2.5))
+    time.sleep(random.uniform(2.0, 3.0))
     for i in range(page.locator("select").count()):
         menu = page.locator("select").nth(i)
         try:
@@ -98,11 +98,11 @@ def aceptar(page):
     for selector in selectores:
         try:
             boton = page.locator(selector).first
-            if boton.is_visible(timeout=2000):
+            if boton.is_visible(timeout=3000):
                 boton.scroll_into_view_if_needed()
-                time.sleep(random.uniform(1.0, 1.8))
+                time.sleep(random.uniform(1.2, 2.0))
                 boton.click(force=True)
-                page.wait_for_load_state("domcontentloaded", timeout=10000)
+                page.wait_for_load_state("domcontentloaded", timeout=15000)
                 logging.info("Botón Aceptar pulsado.")
                 return True
         except Exception:
@@ -111,12 +111,12 @@ def aceptar(page):
 
 def rellenar_formulario_datos(page):
     logging.info("Rellenando formulario de datos personales...")
-    page.wait_for_selector("input[type='text'], input#txtIdCit", timeout=15000)
-    time.sleep(1.5)
+    page.wait_for_selector("input[type='text'], input#txtIdCit", timeout=20000)
+    time.sleep(2.0)
 
     try:
         radio_nie = page.locator("input[type='radio'][value='NIE'], input#rdbTipoDocNie").first
-        if radio_nie.is_visible(timeout=2000):
+        if radio_nie.is_visible(timeout=3000):
             radio_nie.check()
     except Exception:
         pass
@@ -142,7 +142,7 @@ def rellenar_formulario_datos(page):
     # Nacionalidad
     try:
         select_pais = page.locator("select#txtPaisNac, select[name*='Pais']").first
-        if select_pais.is_visible(timeout=2000):
+        if select_pais.is_visible(timeout=3000):
             try:
                 select_pais.select_option(label=NACIONALIDAD)
             except Exception:
@@ -156,7 +156,7 @@ def rellenar_formulario_datos(page):
     except Exception as e:
         logging.warning("Aviso al seleccionar país: %s", e)
 
-    time.sleep(1.5)
+    time.sleep(2.0)
     aceptar(page)
 
 def evaluar_resultado_final(page):
@@ -201,7 +201,9 @@ def evaluar_resultado_final(page):
 
 def ejecutar_ciclo(page):
     logging.info("Abriendo sede...")
-    page.goto(URL, wait_until="domcontentloaded", timeout=60000)
+    # Intentamos cargar con timeout amplio de 90s
+    page.goto(URL, wait_until="commit", timeout=90000)
+    page.wait_for_load_state("domcontentloaded", timeout=30000)
 
     if comprobar_estado_temprano(page) in ("429", "bloqueo"):
         return "429"
@@ -210,9 +212,9 @@ def ejecutar_ciclo(page):
     if comprobar_estado_temprano(page) in ("429", "bloqueo"):
         return "429"
 
-    time.sleep(random.uniform(1.0, 2.0))
+    time.sleep(random.uniform(1.5, 2.5))
     provincia = page.locator("select#form, select[name='form']").first
-    provincia.wait_for(state="visible", timeout=15000)
+    provincia.wait_for(state="visible", timeout=20000)
     provincia.select_option(label=PROVINCIA_SELECCIONADA)
 
     if not aceptar(page):
@@ -234,15 +236,15 @@ def ejecutar_ciclo(page):
         return "429"
 
     logging.info("Avanzando pantalla de avisos...")
-    time.sleep(1.5)
+    time.sleep(2.0)
     try:
         btn_entrar = page.locator("input#btnEntrar, input[value='Entrar'], button#btnEntrar").first
-        if btn_entrar.is_visible(timeout=3000):
+        if btn_entrar.is_visible(timeout=4000):
             btn_entrar.click(force=True)
         else:
             btn_sin_clave = page.locator("text=Presentación sin Cl@ve").first
             btn_sin_clave.click(force=True)
-        page.wait_for_load_state("domcontentloaded", timeout=10000)
+        page.wait_for_load_state("domcontentloaded", timeout=15000)
     except Exception as e:
         logging.warning("Error al pasar avisos: %s", e)
 
@@ -259,22 +261,29 @@ def ejecutar_ciclo(page):
 
     logging.info("Pulsando 'Solicitar Cita'...")
     try:
-        time.sleep(1.5)
+        time.sleep(2.0)
         btn_solicitar = page.locator("input[value='Solicitar Cita'], button:has-text('Solicitar Cita'), input#btnEnviar").first
         if btn_solicitar.is_visible(timeout=5000):
             btn_solicitar.click(force=True)
-            page.wait_for_load_state("domcontentloaded", timeout=10000)
+            page.wait_for_load_state("domcontentloaded", timeout=15000)
     except Exception as e:
         logging.warning("Aviso en Solicitar Cita: %s", e)
 
     return evaluar_resultado_final(page)
 
 def main():
+    # Mensaje inicial de prueba
+    enviar_telegram("🤖 *Bot de Citas activado correctamente en la nube.* Comenzando monitoreo...")
+
     with sync_playwright() as p:
-        # En la nube headless debe ser True obligatoriamente
         navegador = p.chromium.launch(
             headless=True,
-            args=["--disable-blink-features=AutomationControlled", "--no-sandbox"]
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage"
+            ]
         )
 
         try:
@@ -292,10 +301,10 @@ def main():
                 try:
                     resultado = ejecutar_ciclo(page)
                 except PlaywrightTimeoutError:
-                    logging.warning("Tiempo de espera agotado.")
+                    logging.warning("Tiempo de espera agotado al conectar a la Sede.")
                     resultado = "desconocido"
-                except Exception:
-                    logging.exception("Error durante la navegación.")
+                except Exception as ex:
+                    logging.exception(f"Error inesperado: {ex}")
                     resultado = "desconocido"
                 finally:
                     contexto.close()
